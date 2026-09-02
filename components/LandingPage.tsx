@@ -95,10 +95,12 @@ export default function LandingPage() {
         fetch('/api/invite-agent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+                    body: JSON.stringify({
             requester_id: responseData.uid,
             channel_name: responseData.channel,
-          } as ClientStartRequest),
+            user_name: 'Candidate',
+            role: 'Software Engineer',
+          }),
         })
           .then(async (res) => {
             if (!res.ok) {
@@ -128,8 +130,12 @@ export default function LandingPage() {
       ]);
 
       // 3. All dependencies ready — store state and show conversation
-      setRtmClient(rtm);
-      setAgoraData({ ...responseData, agentId: agentData?.agent_id });
+        setRtmClient(rtm);
+        setAgoraData({
+        ...responseData,
+        agentId: agentData?.agent_id,
+        sessionId: agentData?.session_id,
+      });
       setShowConversation(true);
     } catch (err) {
       setError('Failed to start conversation. Please try again.');
@@ -176,11 +182,11 @@ export default function LandingPage() {
     [agoraData],
   );
 
-  const handleEndConversation = async () => {
-    // Stop the AI agent
+
+  const [report, setReport] = useState<unknown | null>(null);
+    const handleEndConversation = async () => {
     if (agoraData?.agentId) {
       try {
-        // console.log('Stopping agent:', agoraData.agentId);
         const response = await fetch('/api/stop-conversation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -189,13 +195,24 @@ export default function LandingPage() {
         if (!response.ok) {
           console.error('Failed to stop agent:', await response.text());
         }
-        // else console.log('Agent stopped successfully');
       } catch (error) {
         console.error('Error stopping agent:', error);
       }
     }
 
-    // Tear down RTM — owned here since we created it here
+    if (agoraData?.sessionId) {
+      try {
+        const res = await fetch('/api/interview/finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: agoraData.sessionId }),
+        });
+        setReport(await res.json());
+      } catch (error) {
+        console.error('Error fetching final report:', error);
+      }
+    }
+
     rtmClient?.logout().catch((err) => console.error('RTM logout error:', err));
     setRtmClient(null);
     setShowConversation(false);
@@ -281,6 +298,14 @@ export default function LandingPage() {
           </a>
         </div>
       </footer>
+    {report !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <pre className="max-h-[80vh] max-w-2xl overflow-auto rounded-lg bg-card p-4 text-xs text-foreground">
+            {JSON.stringify(report, null, 2)}
+          </pre>
+        </div>
+      )}
+
     </div>
   );
 }

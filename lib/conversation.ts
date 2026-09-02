@@ -124,3 +124,18 @@ export function getCurrentInProgressMessage(
   const item = transcript.find((entry) => entry.status === TurnStatus.IN_PROGRESS);
   return item ? toMessageListItem(item) : null;
 }
+
+export interface AgentResponse {
+  agent_id: string;
+  session_id: string;
+  create_ts: number;
+  state: string;
+}
+
+export interface AgoraTokenData {
+  token: string;
+  uid: string;
+  channel: string;
+  agentId?: string;
+  sessionId?: string;
+}

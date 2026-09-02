@@ -9,10 +9,19 @@ import {
   OpenAI,
 } from 'agora-agents';
 import { ClientStartRequest, AgentResponse } from '@/types/conversation';
+
+
+
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
+
+import { randomUUID } from 'crypto';
+import { createSession } from '@/lib/interview-session-store';
 
 // System prompt that defines the agent's personality and behavior.
 // Swap this out to change what the agent talks about.
+
+
+
 const ADA_PROMPT = `You are **Ada**, an agentic developer advocate from **Agora**. You help developers understand and build with Agora's Conversational AI platform.
 
 # What Agora Actually Is
@@ -54,8 +63,8 @@ export async function POST(request: NextRequest) {
   try {
     // --- 1. Parse request ---
 
-    const body: ClientStartRequest = await request.json();
-    const { requester_id, channel_name } = body;
+    const body: ClientStartRequest & { user_name?: string; role?: string } = await request.json();
+    const { requester_id, channel_name, user_name = 'Candidate', role = 'Software Engineer' } = body;
 
     // Validate required env vars on first request so misconfiguration surfaces
     // with a clear error message rather than a silent failure.
@@ -69,6 +78,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+        // --- Interview session bootstrap ---
+    const sessionId = randomUUID();
+    const firstQuestion = `Hi ${user_name}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
+    createSession(sessionId, {
+      userId: requester_id,
+      userName: user_name,
+      role,
+      firstQuestion,
+    });
+
     // --- 2. Build and start the agent ---
 
     // AgoraClient authenticates API calls to the Agora Conversational AI service.
@@ -81,10 +100,15 @@ export async function POST(request: NextRequest) {
 
     // Pipeline: Deepgram (reseller) STT → OpenAI (reseller) LLM → MiniMax (reseller) TTS.
     // Omit vendor API keys for supported models — AgentKit infers reseller presets on start (see Agora Console / billing).
+        // SESSION_ID line is parsed back out by app/api/chat/completions/route.ts
+    // to correlate this call with the right interview session.
+
+    const interviewInstructions = `SESSION_ID:${sessionId}\nROLE:${role}\nYou are conducting a live spoken job interview. When you receive a prompt from the system, respond with EXACTLY the question text you are given — do not add extra commentary, do not rephrase it. Speak naturally as if you are the interviewer.`;
+
     const agent = new Agent({
       client,
-      instructions: ADA_PROMPT,
-      greeting: GREETING,
+      instructions: interviewInstructions,
+      greeting: firstQuestion,
       failureMessage: 'Please wait a moment.',
       maxHistory: 50,
       // VAD controls how the agent detects the start and end of a user's turn.
@@ -133,18 +157,21 @@ export async function POST(request: NextRequest) {
         //   language: 'en',
         // }),
       )
-      .withLlm(
+     
+            .withLlm(
         new OpenAI({
+          apiKey: requireEnv('NEXT_LLM_API_KEY'),
+          url: requireEnv('NEXT_LLM_URL'),
           model: 'gpt-4o-mini',
-          greetingMessage: GREETING,
+          greetingMessage: firstQuestion,
           failureMessage: 'Please wait a moment.',
           maxHistory: 15,
-          params: {
-            max_tokens: 1024,
-            temperature: 0.7,
-            top_p: 0.95,
-          },
+          maxTokens: 1024,
+          temperature: 0.7,
+          topP: 0.95,
         }),
+      )
+
         // BYOK: uncomment the following block and set NEXT_LLM_API_KEY and NEXT_LLM_URL
         // new OpenAI({
         //   apiKey: requireEnv('NEXT_LLM_API_KEY'),
@@ -157,7 +184,7 @@ export async function POST(request: NextRequest) {
         //   temperature: 0.7,
         //   topP: 0.95,
         // }),
-      )
+      // )
       .withTts(
         new MiniMaxTTS({
           model: 'speech_2_6_turbo',
@@ -184,11 +211,12 @@ export async function POST(request: NextRequest) {
 
     const agentId = await session.start();
 
-    return NextResponse.json({
+      return NextResponse.json({
       agent_id: agentId,
+      session_id: sessionId,
       create_ts: Math.floor(Date.now() / 1000),
       state: 'RUNNING',
-    } as AgentResponse);
+    });
   } catch (error) {
     console.error('Error starting conversation:', error);
     return NextResponse.json(
