@@ -530,7 +530,7 @@ export default function LandingPage() {
                   ------------------------------------------------ */}
 
               {adaptiveState && (
-                <div className="fixed left-4 top-4 z-40 w-72 rounded-lg border bg-card/95 p-4 text-xs shadow-lg backdrop-blur">
+                <div className="fixed right-4 top-4 z-40 w-72 rounded-lg border bg-card/95 p-4 text-xs shadow-lg backdrop-blur">
                   <div className="mb-3 font-semibold">
                     🧠 Adaptive Interview
                   </div>
