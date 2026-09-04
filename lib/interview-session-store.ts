@@ -6,19 +6,23 @@ type SessionRecord = {
   lastQuestion: string;
   turnCount: number;
   difficulty: number;
-
-  // Interview lifecycle
-  maxTurns: number;
   finished: boolean;
-
-  // Assessment collected after every candidate answer.
-  // Kept as unknown because the exact n8n assessment schema can evolve.
-  assessments: unknown[];
+  maxTurns: number;
+  assessments: unknown[]; // <-- Add this line
 };
 
-// In-memory store — resets on server restart.
-// Fine for a hackathon demo; swap for Redis/DB later.
-const sessions = new Map<string, SessionRecord>();
+// In-memory store — resets on real server restart, doesn't work across multiple
+// server instances. Fine for a hackathon demo; swap for Redis/DB later.
+//
+// Pinned to globalThis so Next.js dev-mode hot-reload (which can re-execute
+// this module when you edit route files) doesn't silently create a fresh,
+// empty Map mid-interview.
+const globalForSessions = globalThis as unknown as {
+  __interviewSessions?: Map<string, SessionRecord>;
+};
+
+const sessions = globalForSessions.__interviewSessions ?? new Map<string, SessionRecord>();
+globalForSessions.__interviewSessions = sessions;
 
 export function createSession(
   sessionId: string,
