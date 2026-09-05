@@ -1,157 +1,529 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { finishInterview } from '@/lib/n8n-client';
 import { getSession } from '@/lib/interview-session-store';
 
+import type {
+  DimensionBreakdown,
+  ImprovementPlanItem,
+  InterviewEvaluation,
+} from '@/types/interview';
+
 type ScoreResult = {
   overall_score: number | null;
+
   breakdown: Record<string, number>;
+
+  dimension_breakdown: DimensionBreakdown[];
+
   strengths: string[];
+
   weaknesses: string[];
+
+  red_flags: string[];
+
+  improvement_plan: ImprovementPlanItem[];
+
+  summary: string;
+
   evidence: string[];
 };
 
+/**
+ * Convert possible score formats to 0-100.
+ */
 function toScore(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  if (value >= 0 && value <= 1) return Math.round(value * 100);
-  if (value >= 0 && value <= 100) return Math.round(value);
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value)
+  ) {
+    return null;
+  }
+
+  if (value >= 0 && value <= 1) {
+    return Math.round(value * 100);
+  }
+
+  if (value >= 0 && value <= 100) {
+    return Math.round(value);
+  }
+
   return null;
 }
 
-function buildFallbackScore(assessments: unknown[]): ScoreResult {
+/**
+ * Convert unknown values into string arrays.
+ */
+function extractStrings(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return value.trim() ? [value.trim()] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (item): item is string =>
+        typeof item === 'string' &&
+        item.trim().length > 0,
+    ).map((item) => item.trim());
+  }
+
+  return [];
+}
+
+/**
+ * Build a score from the assessments collected during
+ * the interview if the final n8n report is unavailable.
+ */
+function buildFallbackScore(
+  assessments: unknown[],
+): ScoreResult {
   const turnScores: number[] = [];
-  const dimensionValues: Record<string, number[]> = {};
+
+  const dimensionValues: Record<
+    string,
+    number[]
+  > = {};
+
   const strengths: string[] = [];
+
   const weaknesses: string[] = [];
+
+  const redFlags: string[] = [];
+
   const evidence: string[] = [];
 
   for (const item of assessments) {
-    if (!item || typeof item !== 'object') continue;
-    const assessment = item as Record<string, unknown>;
+    if (
+      !item ||
+      typeof item !== 'object'
+    ) {
+      continue;
+    }
+
+    const assessment =
+      item as Record<string, unknown>;
 
     const directScore =
       toScore(assessment.score) ??
       toScore(assessment.overall_score);
 
-    if (directScore !== null) turnScores.push(directScore);
+    if (directScore !== null) {
+      turnScores.push(directScore);
+    }
 
-    const dimensions = assessment.breakdown ?? assessment.dimensions;
+    const dimensions =
+      assessment.breakdown ??
+      assessment.dimensions;
 
-    if (dimensions && typeof dimensions === 'object' && !Array.isArray(dimensions)) {
-      for (const [key, value] of Object.entries(dimensions)) {
+    if (
+      dimensions &&
+      typeof dimensions === 'object' &&
+      !Array.isArray(dimensions)
+    ) {
+      for (const [
+        key,
+        value,
+      ] of Object.entries(dimensions)) {
         const score =
-          typeof value === 'object' && value !== null
-            ? toScore((value as Record<string, unknown>).score)
+          typeof value === 'object' &&
+            value !== null
+            ? toScore(
+              (
+                value as Record<
+                  string,
+                  unknown
+                >
+              ).score,
+            )
             : toScore(value);
 
         if (score !== null) {
           dimensionValues[key] ??= [];
-          dimensionValues[key].push(score);
+
+          dimensionValues[key].push(
+            score,
+          );
         }
       }
     }
 
-    const addStrings = (value: unknown, target: string[]) => {
-      if (typeof value === 'string' && value.trim()) target.push(value.trim());
-      else if (Array.isArray(value)) {
-        for (const entry of value) {
-          if (typeof entry === 'string' && entry.trim()) target.push(entry.trim());
-        }
-      }
-    };
+    strengths.push(
+      ...extractStrings(
+        assessment.strengths,
+      ),
+    );
 
-    addStrings(assessment.strengths, strengths);
-    addStrings(assessment.weaknesses, weaknesses);
-    addStrings(assessment.evidence, evidence);
+    weaknesses.push(
+      ...extractStrings(
+        assessment.weaknesses,
+      ),
+    );
+
+    redFlags.push(
+      ...extractStrings(
+        assessment.red_flags,
+      ),
+    );
+
+    evidence.push(
+      ...extractStrings(
+        assessment.evidence,
+      ),
+    );
   }
 
-  const breakdown: Record<string, number> = {};
+  const breakdown: Record<
+    string,
+    number
+  > = {};
 
-  for (const [key, values] of Object.entries(dimensionValues)) {
-    if (values.length > 0) {
-      breakdown[key] = Math.round(
-        values.reduce((sum, value) => sum + value, 0) / values.length,
-      );
+  const dimensionBreakdown: DimensionBreakdown[] =
+    [];
+
+  for (const [
+    key,
+    values,
+  ] of Object.entries(
+    dimensionValues,
+  )) {
+    if (values.length === 0) {
+      continue;
     }
+
+    const average = Math.round(
+      values.reduce(
+        (sum, value) =>
+          sum + value,
+        0,
+      ) / values.length,
+    );
+
+    breakdown[key] = average;
+
+    dimensionBreakdown.push({
+      dimension: key,
+      score: average,
+      feedback:
+        'Score calculated from the collected interview turn assessments.',
+    });
   }
 
-  const dimensionScores = Object.values(breakdown);
+  const dimensionScores =
+    Object.values(breakdown);
+
   const overallScore =
     dimensionScores.length > 0
-      ? Math.round(dimensionScores.reduce((a, b) => a + b, 0) / dimensionScores.length)
+      ? Math.round(
+        dimensionScores.reduce(
+          (a, b) => a + b,
+          0,
+        ) /
+        dimensionScores.length,
+      )
       : turnScores.length > 0
-        ? Math.round(turnScores.reduce((a, b) => a + b, 0) / turnScores.length)
+        ? Math.round(
+          turnScores.reduce(
+            (a, b) => a + b,
+            0,
+          ) /
+          turnScores.length,
+        )
         : null;
 
   return {
     overall_score: overallScore,
+
     breakdown,
-    strengths: [...new Set(strengths)].slice(0, 6),
-    weaknesses: [...new Set(weaknesses)].slice(0, 6),
-    evidence: [...new Set(evidence)].slice(0, 10),
+
+    dimension_breakdown:
+      dimensionBreakdown,
+
+    strengths: [
+      ...new Set(strengths),
+    ].slice(0, 6),
+
+    weaknesses: [
+      ...new Set(weaknesses),
+    ].slice(0, 6),
+
+    red_flags: [
+      ...new Set(redFlags),
+    ].slice(0, 6),
+
+    improvement_plan: [],
+
+    summary:
+      'The final AI report was unavailable. This score was calculated from the assessments collected during the interview.',
+
+    evidence: [
+      ...new Set(evidence),
+    ].slice(0, 10),
   };
 }
 
-export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { session_id } = body as { session_id?: string };
+/**
+ * Normalize the response received from n8n.
+ *
+ * This ensures the frontend always receives the
+ * same predictable structure.
+ */
+function normalizeReport(
+  data: Partial<InterviewEvaluation>,
+  fallback: ScoreResult,
+): InterviewEvaluation {
+  const dimensionBreakdown =
+    Array.isArray(
+      data.dimension_breakdown,
+    )
+      ? data.dimension_breakdown
+        .map((item) => ({
+          dimension:
+            String(
+              item.dimension ?? '',
+            ),
 
-  if (!session_id) {
-    return NextResponse.json({ error: 'session_id is required' }, { status: 400 });
+          score:
+            toScore(item.score) ?? 0,
+
+          feedback:
+            String(
+              item.feedback ?? '',
+            ),
+        }))
+        .filter(
+          (item) =>
+            item.dimension.length > 0,
+        )
+      : fallback.dimension_breakdown;
+
+  const breakdown =
+    data.breakdown ??
+    Object.fromEntries(
+      dimensionBreakdown.map(
+        (item) => [
+          item.dimension,
+          item.score,
+        ],
+      ),
+    );
+
+  return {
+    found: data.found ?? true,
+
+    session_id:
+      data.session_id ?? '',
+
+    user_id:
+      data.user_id ?? '',
+
+    user_name:
+      data.user_name ?? 'Candidate',
+
+    target_role:
+      data.target_role ??
+      'Software Engineer',
+
+    disclosure:
+      data.disclosure ??
+      'This assessment was produced by an AI interview panel.',
+
+    overall_score:
+      toScore(data.overall_score) ??
+      fallback.overall_score ??
+      0,
+
+    dimension_breakdown:
+      dimensionBreakdown,
+
+    strengths:
+      Array.isArray(data.strengths)
+        ? data.strengths
+          .filter(
+            (item): item is string =>
+              typeof item ===
+              'string',
+          )
+        : fallback.strengths,
+
+    weaknesses:
+      Array.isArray(data.weaknesses)
+        ? data.weaknesses
+          .filter(
+            (item): item is string =>
+              typeof item ===
+              'string',
+          )
+        : fallback.weaknesses,
+
+    red_flags:
+      Array.isArray(data.red_flags)
+        ? data.red_flags
+          .filter(
+            (item): item is string =>
+              typeof item ===
+              'string',
+          )
+        : fallback.red_flags,
+
+    improvement_plan:
+      Array.isArray(
+        data.improvement_plan,
+      )
+        ? data.improvement_plan
+        : fallback.improvement_plan,
+
+    summary:
+      data.summary ??
+      fallback.summary,
+
+    breakdown,
+
+    evidence:
+      Array.isArray(data.evidence)
+        ? data.evidence
+        : fallback.evidence,
+  };
+}
+
+export async function POST(
+  request: NextRequest,
+) {
+  let body: {
+    session_id?: string;
+  };
+
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          'Invalid JSON body',
+      },
+      { status: 400 },
+    );
   }
 
-  const session = getSession(session_id);
+  const {
+    session_id,
+  } = body;
+
+  if (!session_id) {
+    return NextResponse.json(
+      {
+        error:
+          'session_id is required',
+      },
+      { status: 400 },
+    );
+  }
+
+  const session =
+    getSession(session_id);
 
   if (!session) {
     return NextResponse.json(
-      { error: `Unknown session_id: ${session_id}` },
+      {
+        error:
+          `Unknown session_id: ${session_id}`,
+      },
       { status: 404 },
     );
   }
 
+  const fallback =
+    buildFallbackScore(
+      session.assessments,
+    );
+
   try {
-    const fallback = buildFallbackScore(session.assessments);
+    const n8nReport =
+      await finishInterview({
+        session_id,
 
-    const n8nReport = await finishInterview({
-      session_id,
-      user_id: session.userId,
-      user_name: session.userName,
-      role: session.role,
-      candidate_state: session.candidateState,
-      assessments: session.assessments,
-    });
+        user_id:
+          session.userId,
 
-    const report = {
-      ...n8nReport,
-      overall_score:
-        typeof n8nReport.overall_score === 'number'
-          ? n8nReport.overall_score
-          : fallback.overall_score,
-      breakdown: n8nReport.breakdown ?? fallback.breakdown,
-      strengths: n8nReport.strengths ?? fallback.strengths,
-      weaknesses: n8nReport.weaknesses ?? fallback.weaknesses,
-      evidence: n8nReport.evidence ?? fallback.evidence,
-      disclosure:
-        n8nReport.disclosure ??
-        'This interview and assessment were generated with AI.',
-    };
+        user_name:
+          session.userName,
 
-    return NextResponse.json(report);
+        role:
+          session.role,
+
+        candidate_state:
+          session.candidateState,
+
+        assessments:
+          session.assessments,
+      });
+
+    const report =
+      normalizeReport(
+        n8nReport,
+        fallback,
+      );
+
+    return NextResponse.json(
+      report,
+    );
   } catch (error) {
-    console.error('Error finishing interview:', error);
-
-    const fallback = buildFallbackScore(session.assessments);
+    console.error(
+      'Error finishing interview:',
+      error,
+    );
 
     if (
-      fallback.overall_score !== null ||
-      Object.keys(fallback.breakdown).length > 0
+      fallback.overall_score !==
+      null ||
+      Object.keys(
+        fallback.breakdown,
+      ).length > 0
     ) {
       return NextResponse.json({
-        overall_score: fallback.overall_score,
-        breakdown: fallback.breakdown,
-        strengths: fallback.strengths,
-        weaknesses: fallback.weaknesses,
-        evidence: fallback.evidence,
-        disclosure: 'This interview and assessment were generated with AI.',
+        found: true,
+
+        session_id,
+
+        user_id:
+          session.userId,
+
+        user_name:
+          session.userName,
+
+        target_role:
+          session.role,
+
+        overall_score:
+          fallback.overall_score ??
+          0,
+
+        dimension_breakdown:
+          fallback.dimension_breakdown,
+
+        breakdown:
+          fallback.breakdown,
+
+        strengths:
+          fallback.strengths,
+
+        weaknesses:
+          fallback.weaknesses,
+
+        red_flags:
+          fallback.red_flags,
+
+        improvement_plan:
+          fallback.improvement_plan,
+
+        summary:
+          fallback.summary,
+
+        evidence:
+          fallback.evidence,
+
+        disclosure:
+          'This interview and assessment were generated with AI.',
+
         warning:
           'The final AI report service was unavailable, so the score was calculated from the collected turn assessments.',
       });

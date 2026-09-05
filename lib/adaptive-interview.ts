@@ -38,10 +38,12 @@ function stringsFrom(value: unknown): string[] {
   }
 
   if (Array.isArray(value)) {
-    return value.filter(
-      (item): item is string =>
-        typeof item === 'string' && item.trim().length > 0,
-    ).map((item) => item.trim());
+    return value
+      .filter(
+        (item): item is string =>
+          typeof item === 'string' && item.trim().length > 0,
+      )
+      .map((item) => item.trim());
   }
 
   return [];
@@ -66,11 +68,11 @@ function extractDimensions(
     )) {
       const score =
         value &&
-        typeof value === 'object' &&
-        !Array.isArray(value)
+          typeof value === 'object' &&
+          !Array.isArray(value)
           ? toScore(
-              (value as Record<string, unknown>).score,
-            )
+            (value as Record<string, unknown>).score,
+          )
           : toScore(value);
 
       if (score !== null) {
@@ -104,8 +106,8 @@ function normalizeState(
 
     scores:
       raw.scores &&
-      typeof raw.scores === 'object' &&
-      !Array.isArray(raw.scores)
+        typeof raw.scores === 'object' &&
+        !Array.isArray(raw.scores)
         ? (raw.scores as Record<string, number>)
         : {},
 
@@ -186,10 +188,6 @@ export function buildCandidateState(
 
     /*
      * Running average for each dimension.
-     *
-     * For example:
-     * technical = previous 80 + current 90
-     * -> 85
      */
     for (const [dimension, score] of Object.entries(
       dimensions,
@@ -227,10 +225,6 @@ export function buildCandidateState(
       ...stringsFrom(current.uncertainties),
     );
 
-    /*
-     * Detect contradiction / vagueness signals
-     * returned by the assessment system.
-     */
     const contradictionValues = [
       ...stringsFrom(current.contradictions),
       ...stringsFrom(current.contradiction),
@@ -257,10 +251,6 @@ export function buildCandidateState(
       );
     }
 
-    /*
-     * Low confidence in an assessment should create
-     * uncertainty rather than pretending the score is exact.
-     */
     const confidence =
       toScore(current.confidence);
 
@@ -444,20 +434,33 @@ export function buildInterviewDirective(
   }
 
   /*
-   * Difficulty adaptation.
+   * ----------------------------------------------------------
+   * Difficulty adaptation
+   * ----------------------------------------------------------
+   *
+   * IMPORTANT:
+   * Always normalize currentDifficulty first.
+   * Older hot-reloaded sessions may not have a difficulty
+   * property, which would otherwise result in NaN.
    */
+  const safeCurrentDifficulty =
+    typeof currentDifficulty === 'number' &&
+      Number.isFinite(currentDifficulty)
+      ? currentDifficulty
+      : 3;
+
   let targetDifficulty =
-    currentDifficulty;
+    safeCurrentDifficulty;
 
   if (weakest) {
     const weakestScore = weakest[1];
 
     if (weakestScore >= 80) {
       targetDifficulty =
-        currentDifficulty + 1;
+        safeCurrentDifficulty + 1;
     } else if (weakestScore < 60) {
       targetDifficulty =
-        currentDifficulty - 1;
+        safeCurrentDifficulty - 1;
     }
   }
 
@@ -467,9 +470,7 @@ export function buildInterviewDirective(
   );
 
   /*
-   * If we're close to the end, prioritize
-   * collecting missing evidence instead of opening
-   * an entirely new topic.
+   * Final turns should focus on collecting evidence.
    */
   if (turnCount >= maxTurns - 2) {
     questionType = 'targeted_follow_up';

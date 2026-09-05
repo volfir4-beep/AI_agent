@@ -9,75 +9,85 @@ export type InterviewDirective = {
 
 export type TurnRequest = {
   session_id: string;
-
   user_id: string;
-
   user_name: string;
-
   role: string;
-
   question_context: string;
-
   transcript: string;
 
   audio_features: {
     speech_rate_wpm: number;
-
     filler_count: number;
-
     avg_pause_ms: number;
-
     voice_stability: number;
   };
 
   candidate_state: unknown;
-
   turn_count: number;
-
   difficulty: number;
 
-  // Adaptive Interview Director guidance
   interview_directive?: InterviewDirective;
 };
 
 export type TurnResponse = {
   next_turn: {
     next_interviewer: string;
-
     question_text: string;
-
     target_difficulty: number;
   };
 
   assessment: unknown;
-
   candidate_state: unknown;
 };
 
 export type FinishRequest = {
   session_id: string;
-
   user_id: string;
-
   user_name: string;
-
   role: string;
-
   candidate_state: unknown;
-
   assessments: unknown[];
 };
 
-export type FinishResponse = {
-  overall_score?: number;
+export interface DimensionBreakdown {
+  dimension: string;
+  score: number;
+  feedback: string;
+}
 
-  breakdown?: unknown;
+export interface ImprovementPlanItem {
+  area: string;
+  recommendation: string;
+  resource: string;
+}
 
-  red_flags?: unknown;
+export interface InterviewEvaluation {
+  found?: boolean;
 
-  improvement_plan?: unknown;
+  session_id: string;
+  user_id: string;
+  user_name: string;
+  target_role: string;
 
   disclosure?: string;
 
-  [key: string]: unknown;
-};
+  overall_score: number;
+
+  dimension_breakdown: DimensionBreakdown[];
+
+  strengths: string[];
+  weaknesses: string[];
+  red_flags: string[];
+
+  improvement_plan: ImprovementPlanItem[];
+
+  summary: string;
+
+  breakdown?: Record<string, number>;
+
+  evidence?: unknown[];
+
+  warning?: string;
+}
+
+export type FinishResponse = InterviewEvaluation;
