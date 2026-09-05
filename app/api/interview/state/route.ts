@@ -6,8 +6,18 @@ import {
   buildCandidateState,
   buildInterviewDirective,
 } from '@/lib/adaptive-interview';
+import { getAuthenticatedUser } from '@/lib/supabase/auth';
 
 export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 },
+    );
+  }
+
   const sessionId =
     request.nextUrl.searchParams.get('session_id');
 
@@ -28,6 +38,13 @@ export async function GET(request: NextRequest) {
         error: 'Unknown session',
       },
       { status: 404 },
+    );
+  }
+
+  if (session.userId !== user.id) {
+    return NextResponse.json(
+      { error: 'Forbidden' },
+      { status: 403 },
     );
   }
 

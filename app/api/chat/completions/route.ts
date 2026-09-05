@@ -32,6 +32,24 @@ function extractSessionId(messages: ChatMessage[]): string | null {
   return match ? match[1] : null;
 }
 
+function extractSystemValue(
+  messages: ChatMessage[],
+  key: string,
+): string | null {
+  const system = messages.find((m) => m.role === 'system');
+  const text =
+    typeof system?.content === 'string'
+      ? system.content
+      : '';
+
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(
+    new RegExp(`(?:^|\\n)${escapedKey}:([^\\n]+)`, 'i'),
+  );
+
+  return match ? match[1].trim() : null;
+}
+
 function lastUserMessageText(messages: ChatMessage[]): string {
   const userMessages = messages.filter(
     (m) => m.role === 'user',
@@ -71,12 +89,27 @@ export async function POST(request: NextRequest) {
 
   let session = getSession(sessionId);
 
-  // Prevent crash when Next.js dev server wipes memory.
+  // Next.js development restarts can clear the in-memory session.
+  // Recover the stable identity from the system prompt that was created
+  // when the authenticated interview started.
   if (!session) {
+    const recoveredUserId = extractSystemValue(messages, 'USER_ID');
+    const recoveredUserName =
+      extractSystemValue(messages, 'USER_NAME') ?? 'Candidate';
+    const recoveredRole =
+      extractSystemValue(messages, 'ROLE') ?? 'Software Engineer';
+
+    if (!recoveredUserId) {
+      return createSSEResponse(
+        'Sorry, this interview session expired. Please start the interview again.',
+        body.model,
+      );
+    }
+
     session = createSession(sessionId, {
-      userId: 'recovered-user',
-      userName: 'Candidate',
-      role: 'Software Engineer',
+      userId: recoveredUserId,
+      userName: recoveredUserName,
+      role: recoveredRole,
       firstQuestion: 'Could you repeat that?',
     });
   }

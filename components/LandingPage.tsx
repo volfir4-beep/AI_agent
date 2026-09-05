@@ -11,6 +11,7 @@ import {
 import dynamic from 'next/dynamic';
 
 import Image from 'next/image';
+import Link from 'next/link';
 
 import type { RTMClient } from 'agora-rtm';
 
@@ -34,6 +35,7 @@ import { QuickstartPreCallCard } from './QuickstartPreCallCard';
 import ScoreGauge from './ScoreGauge';
 
 import PerformancePieChart from './PerformancePieChart';
+import UserMenu from './UserMenu';
 
 const ConversationComponent =
   dynamic(
@@ -560,8 +562,25 @@ function Scorecard({
         )}
 
         {/* Footer */}
-        <div className="border-t border-white/10 py-8 text-center text-xs text-gray-500">
-          AI-generated interview assessment
+        <div className="flex flex-col items-center justify-center gap-4 border-t border-white/10 py-8 text-center">
+          <p className="text-xs text-gray-500">
+            AI-generated interview assessment. This scorecard is saved to your account.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Link
+              href="/dashboard"
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium hover:bg-white/10"
+            >
+              View interview history
+            </Link>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              Start another interview
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1109,6 +1128,11 @@ export default function LandingPage() {
 
   return (
     <div className="relative flex h-dvh min-h-screen flex-col overflow-hidden bg-background text-foreground">
+      <div className="pointer-events-none fixed right-4 top-4 z-[60]">
+        <div className="pointer-events-auto">
+          <UserMenu />
+        </div>
+      </div>
       <div
         className={`flex min-h-0 flex-1 flex-col ${showConversation
           ? 'items-stretch justify-start'

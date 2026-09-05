@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { finishInterview } from '@/lib/n8n-client';
 import { getSession } from '@/lib/interview-session-store';
+import { getAuthenticatedUser } from '@/lib/supabase/auth';
+import { saveInterview } from '@/lib/interview-history';
 
 import type {
   DimensionBreakdown,
@@ -385,9 +387,36 @@ function normalizeReport(
   };
 }
 
+async function persistReport(
+  report: InterviewEvaluation,
+): Promise<InterviewEvaluation> {
+  try {
+    await saveInterview(report);
+    return report;
+  } catch (error) {
+    console.error('Failed to persist interview scorecard:', error);
+
+    return {
+      ...report,
+      warning:
+        report.warning ??
+        'The interview scorecard could not be saved. Please check your Supabase configuration.',
+    };
+  }
+}
+
 export async function POST(
   request: NextRequest,
 ) {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 },
+    );
+  }
+
   let body: {
     session_id?: string;
   };
@@ -431,6 +460,13 @@ export async function POST(
     );
   }
 
+  if (session.userId !== user.id) {
+    return NextResponse.json(
+      { error: 'Forbidden' },
+      { status: 403 },
+    );
+  }
+
   const fallback =
     buildFallbackScore(
       session.assessments,
@@ -457,15 +493,20 @@ export async function POST(
           session.assessments,
       });
 
-    const report =
-      normalizeReport(
-        n8nReport,
-        fallback,
-      );
-
-    return NextResponse.json(
-      report,
+    const report = normalizeReport(
+      {
+        ...n8nReport,
+        session_id: session_id,
+        user_id: user.id,
+        user_name: session.userName,
+        target_role: session.role,
+      },
+      fallback,
     );
+
+    const savedReport = await persistReport(report);
+
+    return NextResponse.json(savedReport);
   } catch (error) {
     console.error(
       'Error finishing interview:',
@@ -473,60 +514,34 @@ export async function POST(
     );
 
     if (
-      fallback.overall_score !==
-      null ||
-      Object.keys(
-        fallback.breakdown,
-      ).length > 0
+      fallback.overall_score !== null ||
+      Object.keys(fallback.breakdown).length > 0
     ) {
-      return NextResponse.json({
+      const fallbackReport: InterviewEvaluation = {
         found: true,
-
         session_id,
-
-        user_id:
-          session.userId,
-
-        user_name:
-          session.userName,
-
-        target_role:
-          session.role,
-
-        overall_score:
-          fallback.overall_score ??
-          0,
-
-        dimension_breakdown:
-          fallback.dimension_breakdown,
-
-        breakdown:
-          fallback.breakdown,
-
-        strengths:
-          fallback.strengths,
-
-        weaknesses:
-          fallback.weaknesses,
-
-        red_flags:
-          fallback.red_flags,
-
-        improvement_plan:
-          fallback.improvement_plan,
-
-        summary:
-          fallback.summary,
-
-        evidence:
-          fallback.evidence,
-
+        user_id: user.id,
+        user_name: session.userName,
+        target_role: session.role,
+        overall_score: fallback.overall_score ?? 0,
+        dimension_breakdown: fallback.dimension_breakdown,
+        breakdown: fallback.breakdown,
+        strengths: fallback.strengths,
+        weaknesses: fallback.weaknesses,
+        red_flags: fallback.red_flags,
+        improvement_plan: fallback.improvement_plan,
+        summary: fallback.summary,
+        evidence: fallback.evidence,
         disclosure:
           'This interview and assessment were generated with AI.',
-
         warning:
           'The final AI report service was unavailable, so the score was calculated from the collected turn assessments.',
-      });
+      };
+
+      const savedFallback =
+        await persistReport(fallbackReport);
+
+      return NextResponse.json(savedFallback);
     }
 
     return NextResponse.json(

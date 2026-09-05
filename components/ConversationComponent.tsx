@@ -227,7 +227,7 @@ export default function ConversationComponent({
               ai.unsubscribe();
               ai.destroy();
             }
-          } catch {}
+          } catch { }
           return;
         }
 
@@ -298,7 +298,7 @@ export default function ConversationComponent({
           ai.unsubscribe();
           ai.destroy();
         }
-      } catch {}
+      } catch { }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, joinSuccess]);

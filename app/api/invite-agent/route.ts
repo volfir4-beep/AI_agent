@@ -16,6 +16,7 @@ import { DEFAULT_AGENT_UID } from '@/lib/agora';
 
 import { randomUUID } from 'crypto';
 import { createSession } from '@/lib/interview-session-store';
+import { getAuthenticatedUser } from '@/lib/supabase/auth';
 
 // System prompt that defines the agent's personality and behavior.
 // Swap this out to change what the agent talks about.
@@ -63,8 +64,28 @@ export async function POST(request: NextRequest) {
   try {
     // --- 1. Parse request ---
 
-    const body: ClientStartRequest & { user_name?: string; role?: string } = await request.json();
-    const { requester_id, channel_name, user_name = 'Candidate', role = 'Software Engineer' } = body;
+    const user = await getAuthenticatedUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+
+    const body: ClientStartRequest & { user_name?: string; role?: string } =
+      await request.json();
+
+    const {
+      requester_id,
+      channel_name,
+      role = 'Software Engineer',
+    } = body;
+
+    const userName =
+      (user.user_metadata?.full_name as string | undefined)?.trim() ||
+      user.email?.split('@')[0] ||
+      'Candidate';
 
     // Validate required env vars on first request so misconfiguration surfaces
     // with a clear error message rather than a silent failure.
@@ -78,12 +99,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-        // --- Interview session bootstrap ---
+    // --- Interview session bootstrap ---
     const sessionId = randomUUID();
-    const firstQuestion = `Hi ${user_name}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
+    const firstQuestion = `Hi ${userName}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
+
+    // user.id is the stable Supabase identity used for interview history.
+    // requester_id remains the temporary Agora RTC UID for this call.
     createSession(sessionId, {
-      userId: requester_id,
-      userName: user_name,
+      userId: user.id,
+      userName,
       role,
       firstQuestion,
     });
@@ -100,10 +124,10 @@ export async function POST(request: NextRequest) {
 
     // Pipeline: Deepgram (reseller) STT → OpenAI (reseller) LLM → MiniMax (reseller) TTS.
     // Omit vendor API keys for supported models — AgentKit infers reseller presets on start (see Agora Console / billing).
-        // SESSION_ID line is parsed back out by app/api/chat/completions/route.ts
+    // SESSION_ID line is parsed back out by app/api/chat/completions/route.ts
     // to correlate this call with the right interview session.
 
-    const interviewInstructions = `SESSION_ID:${sessionId}\nROLE:${role}\nYou are conducting a live spoken job interview. When you receive a prompt from the system, respond with EXACTLY the question text you are given — do not add extra commentary, do not rephrase it. Speak naturally as if you are the interviewer.`;
+    const interviewInstructions = `SESSION_ID:${sessionId}\nUSER_ID:${user.id}\nUSER_NAME:${userName}\nROLE:${role}\nYou are conducting a live spoken job interview. When you receive a prompt from the system, respond with EXACTLY the question text you are given — do not add extra commentary, do not rephrase it. Speak naturally as if you are the interviewer.`;
 
     const agent = new Agent({
       client,
@@ -157,8 +181,8 @@ export async function POST(request: NextRequest) {
         //   language: 'en',
         // }),
       )
-     
-            .withLlm(
+
+      .withLlm(
         new OpenAI({
           apiKey: requireEnv('NEXT_LLM_API_KEY'),
           url: requireEnv('NEXT_LLM_URL'),
@@ -172,18 +196,18 @@ export async function POST(request: NextRequest) {
         }),
       )
 
-        // BYOK: uncomment the following block and set NEXT_LLM_API_KEY and NEXT_LLM_URL
-        // new OpenAI({
-        //   apiKey: requireEnv('NEXT_LLM_API_KEY'),
-        //   url: requireEnv('NEXT_LLM_URL'),
-        //   model: 'gpt-4o-mini',
-        //   greetingMessage: GREETING,
-        //   failureMessage: 'Please wait a moment.',
-        //   maxHistory: 15,
-        //   maxTokens: 1024,
-        //   temperature: 0.7,
-        //   topP: 0.95,
-        // }),
+      // BYOK: uncomment the following block and set NEXT_LLM_API_KEY and NEXT_LLM_URL
+      // new OpenAI({
+      //   apiKey: requireEnv('NEXT_LLM_API_KEY'),
+      //   url: requireEnv('NEXT_LLM_URL'),
+      //   model: 'gpt-4o-mini',
+      //   greetingMessage: GREETING,
+      //   failureMessage: 'Please wait a moment.',
+      //   maxHistory: 15,
+      //   maxTokens: 1024,
+      //   temperature: 0.7,
+      //   topP: 0.95,
+      // }),
       // )
       .withTts(
         new MiniMaxTTS({
@@ -211,7 +235,7 @@ export async function POST(request: NextRequest) {
 
     const agentId = await session.start();
 
-      return NextResponse.json({
+    return NextResponse.json({
       agent_id: agentId,
       session_id: sessionId,
       create_ts: Math.floor(Date.now() / 1000),

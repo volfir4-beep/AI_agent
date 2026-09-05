@@ -46,23 +46,21 @@ export function ConnectionStatusPanel({
         <span className="relative flex h-2 w-2">
           {connectionState !== 'DISCONNECTED' && connectionState !== 'DISCONNECTING' && (
             <span
-              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                connectionSeverity === 'normal'
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionSeverity === 'normal'
                   ? 'bg-green-500'
                   : connectionSeverity === 'warning'
                     ? 'bg-amber-500'
                     : 'bg-red-500'
-              }`}
+                }`}
             />
           )}
           <span
-            className={`relative inline-flex h-2 w-2 rounded-full ${
-              connectionSeverity === 'normal'
+            className={`relative inline-flex h-2 w-2 rounded-full ${connectionSeverity === 'normal'
                 ? 'bg-green-500'
                 : connectionSeverity === 'warning'
                   ? 'bg-amber-500'
                   : 'bg-red-500'
-            }`}
+              }`}
           />
         </span>
       </button>
@@ -70,9 +68,8 @@ export function ConnectionStatusPanel({
       {/* Expandable detail panel: current RTC state plus the captured agent/RTM issues. */}
       <div
         id="connection-details-panel"
-        className={`fixed top-16 left-1/2 z-20 w-[min(92vw,22rem)] -translate-x-1/2 rounded-md border border-border bg-card/95 p-3 space-y-2 backdrop-blur-sm transition-opacity md:absolute md:left-0 md:top-full md:mt-3 md:w-[24rem] md:translate-x-0 md:translate-y-0 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
+        className={`fixed top-16 left-1/2 z-20 w-[min(92vw,22rem)] -translate-x-1/2 rounded-md border border-border bg-card/95 p-3 space-y-2 backdrop-blur-sm transition-opacity md:absolute md:left-0 md:top-full md:mt-3 md:w-[24rem] md:translate-x-0 md:translate-y-0 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
         role="status"
         aria-live="polite"
         aria-label="Connection details"

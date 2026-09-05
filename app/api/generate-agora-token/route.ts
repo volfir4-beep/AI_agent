@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
+import { getAuthenticatedUser } from '@/lib/supabase/auth';
 
 const EXPIRATION_TIME_IN_SECONDS = 3600;
 
@@ -10,6 +11,15 @@ function generateChannelName(): string {
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 },
+    );
+  }
+
   // console.log('Generating Agora token...');
   const APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID;
   const APP_CERTIFICATE = process.env.NEXT_AGORA_APP_CERTIFICATE;

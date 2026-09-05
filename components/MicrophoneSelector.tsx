@@ -93,7 +93,7 @@ export function MicrophoneSelector({
             setCurrentDeviceId(changedDevice.device.deviceId);
           } else if (
             changedDevice.device.label ===
-              localMicrophoneTrack?.getTrackLabel() &&
+            localMicrophoneTrack?.getTrackLabel() &&
             changedDevice.state === 'INACTIVE'
           ) {
             // Switch to first available device if current device was unplugged
@@ -149,11 +149,10 @@ export function MicrophoneSelector({
           <DropdownMenuItem
             key={device.deviceId}
             onClick={() => handleDeviceChange(device.deviceId)}
-            className={`cursor-pointer ${
-              device.deviceId === currentDeviceId
+            className={`cursor-pointer ${device.deviceId === currentDeviceId
                 ? 'bg-accent/15 text-primary'
                 : 'text-foreground hover:bg-accent/10'
-            }`}
+              }`}
           >
             <span className="truncate">{device.label}</span>
             {device.deviceId === currentDeviceId && (
