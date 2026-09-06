@@ -1,6 +1,30 @@
 import { AgoraClient, Agent } from 'agora-agents';
-import { RtcTokenBuilder } from 'agora-token';
 import { NextRequest } from 'next/server';
+
+// ----------------------------------------------------------
+// Test environment
+// ----------------------------------------------------------
+
+// Use a fake authenticated user from lib/supabase/auth.ts.
+// This prevents the test from accessing Supabase cookies.
+process.env.API_CONTRACT_TEST = 'true';
+
+// Fake Agora credentials for the contract test.
+process.env.NEXT_PUBLIC_AGORA_APP_ID =
+  '0123456789abcdef0123456789abcdef';
+
+process.env.NEXT_AGORA_APP_CERTIFICATE =
+  'fedcba9876543210fedcba9876543210';
+
+// Fake LLM configuration.
+// These are NOT real API credentials.
+// The Agent session is mocked below, so no real LLM request is made.
+process.env.NEXT_LLM_API_KEY = 'contract-test-key';
+process.env.NEXT_LLM_URL = 'https://contract-test.invalid';
+
+// ----------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------
 
 function assert(
   condition: unknown,
@@ -15,23 +39,9 @@ function getJson(response: Response) {
   return response.json() as Promise<Record<string, unknown>>;
 }
 
-/**
- * ----------------------------------------------------------
- * Test environment
- * ----------------------------------------------------------
- */
-
-process.env.NEXT_PUBLIC_AGORA_APP_ID =
-  '0123456789abcdef0123456789abcdef';
-
-process.env.NEXT_AGORA_APP_CERTIFICATE =
-  'fedcba9876543210fedcba9876543210';
-
-/**
- * ----------------------------------------------------------
- * Invite agent - validation
- * ----------------------------------------------------------
- */
+// ----------------------------------------------------------
+// Invite agent - validation
+// ----------------------------------------------------------
 
 async function verifyInviteAgentValidation() {
   const { POST: inviteAgent } =
@@ -57,16 +67,14 @@ async function verifyInviteAgentValidation() {
 
   assert(
     body.error ===
-    'channel_name and requester_id are required',
+      'channel_name and requester_id are required',
     'POST /api/invite-agent should explain validation failure',
   );
 }
 
-/**
- * ----------------------------------------------------------
- * Invite agent - success
- * ----------------------------------------------------------
- */
+// ----------------------------------------------------------
+// Invite agent - success
+// ----------------------------------------------------------
 
 async function verifyInviteAgentSuccess() {
   const { POST: inviteAgent } =
@@ -149,7 +157,7 @@ async function verifyInviteAgentSuccess() {
 
     assert(
       JSON.stringify(sessionConfig.remoteUids) ===
-      JSON.stringify(['user-4321']),
+        JSON.stringify(['user-4321']),
       'POST /api/invite-agent should scope the session to the requesting user',
     );
   } finally {
@@ -158,11 +166,9 @@ async function verifyInviteAgentSuccess() {
   }
 }
 
-/**
- * ----------------------------------------------------------
- * Stop conversation - validation
- * ----------------------------------------------------------
- */
+// ----------------------------------------------------------
+// Stop conversation - validation
+// ----------------------------------------------------------
 
 async function verifyStopConversationValidation() {
   const { POST: stopConversation } =
@@ -190,11 +196,9 @@ async function verifyStopConversationValidation() {
   );
 }
 
-/**
- * ----------------------------------------------------------
- * Stop conversation - success
- * ----------------------------------------------------------
- */
+// ----------------------------------------------------------
+// Stop conversation - success
+// ----------------------------------------------------------
 
 async function verifyStopConversationSuccess() {
   const { POST: stopConversation } =
@@ -206,12 +210,12 @@ async function verifyStopConversationSuccess() {
   let stoppedAgentId: string | null = null;
 
   AgoraClient.prototype.stopAgent =
-    async function (
+    (async function (
       this: AgoraClient,
       agentId: string,
     ) {
       stoppedAgentId = agentId;
-    } as typeof AgoraClient.prototype.stopAgent;
+    }) as typeof AgoraClient.prototype.stopAgent;
 
   try {
     const request = new NextRequest(
@@ -247,19 +251,14 @@ async function verifyStopConversationSuccess() {
   }
 }
 
-/**
- * ----------------------------------------------------------
- * Main
- * ----------------------------------------------------------
- */
+// ----------------------------------------------------------
+// Main
+// ----------------------------------------------------------
 
 async function main() {
   await verifyInviteAgentValidation();
-
   await verifyInviteAgentSuccess();
-
   await verifyStopConversationValidation();
-
   await verifyStopConversationSuccess();
 
   console.log('API contract checks passed');

@@ -19,39 +19,15 @@ import { getAuthenticatedUser } from '@/lib/supabase/auth';
 
 const ADA_PROMPT = `You are Ada, an agentic developer advocate from Agora. You help developers understand and build with Agora's Conversational AI platform.
 
-# What Agora Actually Is
+You are friendly, technically credible, and concise.
 
-Agora is a real-time communications company. The product you represent is the Agora Conversational AI Engine — it lets developers add voice AI agents to any app by connecting ASR, LLM, and TTS into a real-time pipeline over Agora's SD-RTN (Software Defined Real-Time Network).
-
-Key facts:
-
-- The product is called the Conversational AI Engine.
-- It runs a full ASR → LLM → TTS pipeline.
-- It supports multiple ASR, LLM, and TTS providers.
-- Agora's SD-RTN is its global real-time network infrastructure.
-- MCP means Model Context Protocol.
-
-# Honesty Rule
-
-If you don't know a specific fact about Agora, say so plainly and suggest checking docs.agora.io.
-
-# Persona & Tone
-
-Friendly, technically credible, concise. You're a peer who builds things, not a support agent.
-
-# Core Behavior Guidelines
-
-Default to brief. This is a voice conversation.
-
-Never list or enumerate. Say the single most important thing.
-
-Clarify before answering complex questions.
-
+Default to brief responses because this is a voice conversation.
+Never list or enumerate.
 Ask at most one question per turn.
+Guide, don't lecture.`;
 
-Guide, don't lecture. Unlock the next step, not everything at once.`;
-
-const GREETING = `Hi there! I'm Ada, your virtual assistant from Agora. How can I help?`;
+const GREETING =
+  `Hi there! I'm Ada, your virtual assistant from Agora. How can I help?`;
 
 const agentUid = String(DEFAULT_AGENT_UID);
 
@@ -59,7 +35,9 @@ function requireEnv(name: string): string {
   const value = process.env[name];
 
   if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+    throw new Error(
+      `Missing required environment variable: ${name}`,
+    );
   }
 
   return value;
@@ -67,9 +45,11 @@ function requireEnv(name: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    // ----------------------------------------------------------
-    // 1. Parse request body
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 1. Parse request
+     * ----------------------------------------------------------
+     */
 
     const body: ClientStartRequest & {
       user_name?: string;
@@ -82,55 +62,79 @@ export async function POST(request: NextRequest) {
       role = 'Software Engineer',
     } = body;
 
-    // IMPORTANT:
-    // Validate request fields BEFORE accessing Supabase cookies.
-    // This allows the standalone API contract test to verify
-    // validation without requiring a Next.js request context.
+    /**
+     * Validate BEFORE Supabase authentication.
+     *
+     * This is important because validation tests run outside
+     * a real Next.js request context.
+     */
+
     if (!channel_name || !requester_id) {
       return NextResponse.json(
         {
-          error: 'channel_name and requester_id are required',
+          error:
+            'channel_name and requester_id are required',
         },
         { status: 400 },
       );
     }
 
-    // ----------------------------------------------------------
-    // 2. Authenticate user
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 2. Authenticate user
+     * ----------------------------------------------------------
+     */
 
     const user = await getAuthenticatedUser();
 
     if (!user) {
       return NextResponse.json(
-        { error: 'Authentication required' },
+        {
+          error: 'Authentication required',
+        },
         { status: 401 },
       );
     }
 
-    // ----------------------------------------------------------
-    // 3. User information
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 3. User information
+     * ----------------------------------------------------------
+     */
 
     const userName =
-      (user.user_metadata?.full_name as string | undefined)?.trim() ||
+      (
+        user.user_metadata?.full_name as
+          | string
+          | undefined
+      )?.trim() ||
       user.email?.split('@')[0] ||
       'Candidate';
 
-    // ----------------------------------------------------------
-    // 4. Agora environment variables
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 4. Environment
+     * ----------------------------------------------------------
+     */
 
-    const appId = requireEnv('NEXT_PUBLIC_AGORA_APP_ID');
-    const appCertificate = requireEnv('NEXT_AGORA_APP_CERTIFICATE');
+    const appId = requireEnv(
+      'NEXT_PUBLIC_AGORA_APP_ID',
+    );
 
-    // ----------------------------------------------------------
-    // 5. Create interview session
-    // ----------------------------------------------------------
+    const appCertificate = requireEnv(
+      'NEXT_AGORA_APP_CERTIFICATE',
+    );
+
+    /**
+     * ----------------------------------------------------------
+     * 5. Interview session
+     * ----------------------------------------------------------
+     */
 
     const sessionId = randomUUID();
 
-    const firstQuestion = `Hi ${userName}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
+    const firstQuestion =
+      `Hi ${userName}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
 
     createSession(sessionId, {
       userId: user.id,
@@ -139,9 +143,11 @@ export async function POST(request: NextRequest) {
       firstQuestion,
     });
 
-    // ----------------------------------------------------------
-    // 6. Create Agora client
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 6. Agora client
+     * ----------------------------------------------------------
+     */
 
     const client = new AgoraClient({
       area: Area.US,
@@ -149,9 +155,11 @@ export async function POST(request: NextRequest) {
       appCertificate,
     });
 
-    // ----------------------------------------------------------
-    // 7. Interview instructions
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 7. Interview instructions
+     * ----------------------------------------------------------
+     */
 
     const interviewInstructions = `SESSION_ID:${sessionId}
 USER_ID:${user.id}
@@ -166,9 +174,11 @@ Do not add extra commentary.
 Do not rephrase the question.
 Speak naturally as if you are the interviewer.`;
 
-    // ----------------------------------------------------------
-    // 8. Create AI agent
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 8. AI agent
+     * ----------------------------------------------------------
+     */
 
     const agent = new Agent({
       client,
@@ -183,6 +193,7 @@ Speak naturally as if you are the interviewer.`;
 
           start_of_speech: {
             mode: 'vad',
+
             vad_config: {
               interrupt_duration_ms: 160,
               prefix_padding_ms: 300,
@@ -191,6 +202,7 @@ Speak naturally as if you are the interviewer.`;
 
           end_of_speech: {
             mode: 'vad',
+
             vad_config: {
               silence_duration_ms: 480,
             },
@@ -216,6 +228,7 @@ Speak naturally as if you are the interviewer.`;
           language: 'en',
         }),
       )
+
       .withLlm(
         new OpenAI({
           apiKey: requireEnv('NEXT_LLM_API_KEY'),
@@ -229,16 +242,20 @@ Speak naturally as if you are the interviewer.`;
           topP: 0.95,
         }),
       )
+
       .withTts(
         new MiniMaxTTS({
           model: 'speech_2_6_turbo',
-          voiceId: 'English_captivating_female1',
+          voiceId:
+            'English_captivating_female1',
         }),
       );
 
-    // ----------------------------------------------------------
-    // 9. Create Agora agent session
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 9. Agora session
+     * ----------------------------------------------------------
+     */
 
     const session = agent.createSession({
       channel: channel_name,
@@ -249,15 +266,19 @@ Speak naturally as if you are the interviewer.`;
       debug: false,
     });
 
-    // ----------------------------------------------------------
-    // 10. Start agent
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 10. Start
+     * ----------------------------------------------------------
+     */
 
     const agentId = await session.start();
 
-    // ----------------------------------------------------------
-    // 11. Return response
-    // ----------------------------------------------------------
+    /**
+     * ----------------------------------------------------------
+     * 11. Response
+     * ----------------------------------------------------------
+     */
 
     return NextResponse.json({
       agent_id: agentId,
@@ -266,7 +287,10 @@ Speak naturally as if you are the interviewer.`;
       state: 'RUNNING',
     });
   } catch (error) {
-    console.error('Error starting conversation:', error);
+    console.error(
+      'Error starting conversation:',
+      error,
+    );
 
     return NextResponse.json(
       {
