@@ -136,11 +136,11 @@ export async function POST(request: NextRequest) {
     const firstQuestion =
       `Hi ${userName}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
 
-    createSession(sessionId, {
+    await createSession(sessionId, {
       userId: user.id,
       userName,
       role,
-      firstQuestion,
+      lastQuestion: firstQuestion,
     });
 
     /**

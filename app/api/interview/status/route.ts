@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const session = getSession(sessionId);
+  const session = await getSession(sessionId);
 
   if (!session) {
     return NextResponse.json(

@@ -447,7 +447,7 @@ export async function POST(
     );
   }
 
-  const session =
+  const session = await 
     getSession(session_id);
 
   if (!session) {

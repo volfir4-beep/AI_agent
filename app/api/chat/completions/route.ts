@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let session = getSession(sessionId);
+  let session = await getSession(sessionId);
 
   // Next.js development restarts can clear the in-memory session.
   // Recover the stable identity from the system prompt that was created
@@ -106,11 +106,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    session = createSession(sessionId, {
+    session = await createSession(sessionId, {
       userId: recoveredUserId,
       userName: recoveredUserName,
       role: recoveredRole,
-      firstQuestion: 'Could you repeat that?',
+      lastQuestion: 'Could you repeat that?',
     });
   }
 
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       questionText =
         'Thank you. That concludes the interview. Your responses will now be evaluated.';
 
-      updateSession(sessionId, {
+      await updateSession(sessionId, {
         candidateState: turnResponse.candidate_state,
         lastQuestion: questionText,
         turnCount: newTurnCount,
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
         turnResponse.next_turn?.question_text ??
         'Could you elaborate on your answer?';
 
-      updateSession(sessionId, {
+      await updateSession(sessionId, {
         candidateState: turnResponse.candidate_state,
         lastQuestion: questionText,
         turnCount: newTurnCount,
