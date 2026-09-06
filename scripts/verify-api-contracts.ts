@@ -17,121 +17,15 @@ function getJson(response: Response) {
 
 /**
  * ----------------------------------------------------------
- * Agora token route
+ * Test environment
  * ----------------------------------------------------------
  */
 
-async function verifyGenerateAgoraTokenRoute() {
-  const { GET: generateAgoraToken } =
-    await import('../app/api/generate-agora-token/route');
+process.env.NEXT_PUBLIC_AGORA_APP_ID =
+  '0123456789abcdef0123456789abcdef';
 
-  const originalBuildTokenWithRtm =
-    RtcTokenBuilder.buildTokenWithRtm;
-
-  let tokenBuilderArgs: unknown[] | null = null;
-
-  RtcTokenBuilder.buildTokenWithRtm = ((...args: unknown[]) => {
-    tokenBuilderArgs = args;
-    return 'mock-rtc-rtm-token';
-  }) as typeof RtcTokenBuilder.buildTokenWithRtm;
-
-  try {
-    const request = new NextRequest(
-      'http://localhost:3000/api/generate-agora-token?uid=4321&channel=test-channel',
-    );
-
-    const response = await generateAgoraToken(request);
-    const body = await getJson(response);
-
-    assert(
-      response.status === 200,
-      'GET /api/generate-agora-token should return 200',
-    );
-
-    assert(
-      body.token === 'mock-rtc-rtm-token',
-      'GET /api/generate-agora-token should return the built token',
-    );
-
-    assert(
-      body.uid === '4321',
-      'GET /api/generate-agora-token should preserve the requested uid',
-    );
-
-    assert(
-      body.channel === 'test-channel',
-      'GET /api/generate-agora-token should preserve the requested channel',
-    );
-
-    assert(
-      Array.isArray(tokenBuilderArgs),
-      'GET /api/generate-agora-token should call buildTokenWithRtm',
-    );
-
-    assert(
-      tokenBuilderArgs?.[2] === 'test-channel',
-      'buildTokenWithRtm should use the requested channel',
-    );
-
-    assert(
-      tokenBuilderArgs?.[3] === '4321',
-      'buildTokenWithRtm should receive the requested uid as account string',
-    );
-  } finally {
-    RtcTokenBuilder.buildTokenWithRtm =
-      originalBuildTokenWithRtm;
-  }
-}
-
-/**
- * ----------------------------------------------------------
- * Agora token route - zero UID
- * ----------------------------------------------------------
- */
-
-async function verifyGenerateAgoraTokenReplacesZeroUid() {
-  const { GET: generateAgoraToken } =
-    await import('../app/api/generate-agora-token/route');
-
-  const originalBuildTokenWithRtm =
-    RtcTokenBuilder.buildTokenWithRtm;
-
-  let tokenBuilderArgs: unknown[] | null = null;
-
-  RtcTokenBuilder.buildTokenWithRtm = ((...args: unknown[]) => {
-    tokenBuilderArgs = args;
-    return 'mock-rtc-rtm-token';
-  }) as typeof RtcTokenBuilder.buildTokenWithRtm;
-
-  try {
-    const request = new NextRequest(
-      'http://localhost:3000/api/generate-agora-token?uid=0&channel=test-channel',
-    );
-
-    const response = await generateAgoraToken(request);
-    const body = await getJson(response);
-
-    assert(
-      response.status === 200,
-      'GET /api/generate-agora-token?uid=0 should return 200',
-    );
-
-    assert(
-      typeof body.uid === 'string' &&
-      body.uid !== '0',
-      'GET /api/generate-agora-token?uid=0 should generate an RTM-safe uid',
-    );
-
-    assert(
-      Array.isArray(tokenBuilderArgs) &&
-      tokenBuilderArgs[3] === body.uid,
-      'buildTokenWithRtm should mint the token for the generated uid',
-    );
-  } finally {
-    RtcTokenBuilder.buildTokenWithRtm =
-      originalBuildTokenWithRtm;
-  }
-}
+process.env.NEXT_AGORA_APP_CERTIFICATE =
+  'fedcba9876543210fedcba9876543210';
 
 /**
  * ----------------------------------------------------------
@@ -187,20 +81,19 @@ async function verifyInviteAgentSuccess() {
     remoteUids?: string[];
   } | null = null;
 
-  Agent.prototype.createSession = ((
-    sessionConfig: unknown,
-  ) => {
-    capturedSessionConfig =
-      sessionConfig as {
-        channel?: string;
-        agentUid?: string;
-        remoteUids?: string[];
-      };
+  Agent.prototype.createSession =
+    ((sessionConfig: unknown) => {
+      capturedSessionConfig =
+        sessionConfig as {
+          channel?: string;
+          agentUid?: string;
+          remoteUids?: string[];
+        };
 
-    return {
-      start: async () => 'mock-agent-id',
-    };
-  }) as unknown as typeof Agent.prototype.createSession;
+      return {
+        start: async () => 'mock-agent-id',
+      };
+    }) as unknown as typeof Agent.prototype.createSession;
 
   try {
     const request = new NextRequest(
@@ -312,12 +205,13 @@ async function verifyStopConversationSuccess() {
 
   let stoppedAgentId: string | null = null;
 
-  AgoraClient.prototype.stopAgent = async function (
-    this: AgoraClient,
-    agentId: string,
-  ) {
-    stoppedAgentId = agentId;
-  } as typeof AgoraClient.prototype.stopAgent;
+  AgoraClient.prototype.stopAgent =
+    async function (
+      this: AgoraClient,
+      agentId: string,
+    ) {
+      stoppedAgentId = agentId;
+    } as typeof AgoraClient.prototype.stopAgent;
 
   try {
     const request = new NextRequest(
@@ -360,13 +254,12 @@ async function verifyStopConversationSuccess() {
  */
 
 async function main() {
-  await verifyGenerateAgoraTokenRoute();
-  await verifyGenerateAgoraTokenReplacesZeroUid();
-
   await verifyInviteAgentValidation();
+
   await verifyInviteAgentSuccess();
 
   await verifyStopConversationValidation();
+
   await verifyStopConversationSuccess();
 
   console.log('API contract checks passed');

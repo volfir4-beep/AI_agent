@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import {
   AgoraClient,
   Agent,
@@ -8,61 +9,95 @@ import {
   MiniMaxTTS,
   OpenAI,
 } from 'agora-agents';
-import { ClientStartRequest, AgentResponse } from '@/types/conversation';
 
-
+import type { ClientStartRequest } from '@/types/conversation';
 
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
-
 import { randomUUID } from 'crypto';
 import { createSession } from '@/lib/interview-session-store';
 import { getAuthenticatedUser } from '@/lib/supabase/auth';
 
-// System prompt that defines the agent's personality and behavior.
-// Swap this out to change what the agent talks about.
-
-
-
-const ADA_PROMPT = `You are **Ada**, an agentic developer advocate from **Agora**. You help developers understand and build with Agora's Conversational AI platform.
+const ADA_PROMPT = `You are Ada, an agentic developer advocate from Agora. You help developers understand and build with Agora's Conversational AI platform.
 
 # What Agora Actually Is
-Agora is a real-time communications company. The product you represent is the **Agora Conversational AI Engine** — it lets developers add voice AI agents to any app by connecting ASR, LLM, and TTS into a real-time pipeline over Agora's SD-RTN (Software Defined Real-Time Network). Key facts:
-- The product is called the **Conversational AI Engine** (not "Chorus", not "Harmony", or any other name you might invent)
-- It runs a full ASR → LLM → TTS pipeline with sub-500ms latency
-- It supports Deepgram, Microsoft, and others for ASR; OpenAI, Anthropic, and others for LLM; ElevenLabs, Microsoft, and others for TTS
-- Agora's SD-RTN is its global real-time network infrastructure — not "SDRTN"
-- MCP in this context means **Model Context Protocol** (Anthropic's open standard for connecting AI models to tools/data), not "multi-channel processing"
-- Agora does not have a product called Chorus, Harmony, or any similar name — do not invent product names
+
+Agora is a real-time communications company. The product you represent is the Agora Conversational AI Engine — it lets developers add voice AI agents to any app by connecting ASR, LLM, and TTS into a real-time pipeline over Agora's SD-RTN (Software Defined Real-Time Network).
+
+Key facts:
+
+- The product is called the Conversational AI Engine.
+- It runs a full ASR → LLM → TTS pipeline.
+- It supports multiple ASR, LLM, and TTS providers.
+- Agora's SD-RTN is its global real-time network infrastructure.
+- MCP means Model Context Protocol.
 
 # Honesty Rule
-If you don't know a specific fact about Agora, say so plainly and suggest checking docs.agora.io. Never invent product names, feature names, or capabilities.
+
+If you don't know a specific fact about Agora, say so plainly and suggest checking docs.agora.io.
 
 # Persona & Tone
-- Friendly, technically credible, concise. You're a peer who builds things, not a support agent.
-- Plain English. No marketing fluff.
+
+Friendly, technically credible, concise. You're a peer who builds things, not a support agent.
 
 # Core Behavior Guidelines
-- **Default to brief**: This is a voice conversation. Keep most replies to 1–2 sentences. Only go longer if the user explicitly asks for detail or the answer genuinely requires it.
-- **Never list or enumerate**: No bullet points, no numbered steps. Say the single most important thing.
-- **Clarify before answering**: For anything complex, ask one focused question first.
-- **Ask at most one question per turn**: Never stack questions.
-- **Guide, don't lecture**: Unlock the next step, not everything at once.`;
 
-// First thing the agent says when a user joins the channel.
+Default to brief. This is a voice conversation.
+
+Never list or enumerate. Say the single most important thing.
+
+Clarify before answering complex questions.
+
+Ask at most one question per turn.
+
+Guide, don't lecture. Unlock the next step, not everything at once.`;
+
 const GREETING = `Hi there! I'm Ada, your virtual assistant from Agora. How can I help?`;
 
-// agentUid identifies the AI in the RTC channel and shares its default with the client.
 const agentUid = String(DEFAULT_AGENT_UID);
 
 function requireEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
   return value;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // --- 1. Parse request ---
+    // ----------------------------------------------------------
+    // 1. Parse request body
+    // ----------------------------------------------------------
+
+    const body: ClientStartRequest & {
+      user_name?: string;
+      role?: string;
+    } = await request.json();
+
+    const {
+      requester_id,
+      channel_name,
+      role = 'Software Engineer',
+    } = body;
+
+    // IMPORTANT:
+    // Validate request fields BEFORE accessing Supabase cookies.
+    // This allows the standalone API contract test to verify
+    // validation without requiring a Next.js request context.
+    if (!channel_name || !requester_id) {
+      return NextResponse.json(
+        {
+          error: 'channel_name and requester_id are required',
+        },
+        { status: 400 },
+      );
+    }
+
+    // ----------------------------------------------------------
+    // 2. Authenticate user
+    // ----------------------------------------------------------
 
     const user = await getAuthenticatedUser();
 
@@ -73,38 +108,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: ClientStartRequest & { user_name?: string; role?: string } =
-      await request.json();
-
-    const {
-      requester_id,
-      channel_name,
-      role = 'Software Engineer',
-    } = body;
+    // ----------------------------------------------------------
+    // 3. User information
+    // ----------------------------------------------------------
 
     const userName =
       (user.user_metadata?.full_name as string | undefined)?.trim() ||
       user.email?.split('@')[0] ||
       'Candidate';
 
-    // Validate required env vars on first request so misconfiguration surfaces
-    // with a clear error message rather than a silent failure.
+    // ----------------------------------------------------------
+    // 4. Agora environment variables
+    // ----------------------------------------------------------
+
     const appId = requireEnv('NEXT_PUBLIC_AGORA_APP_ID');
     const appCertificate = requireEnv('NEXT_AGORA_APP_CERTIFICATE');
 
-    if (!channel_name || !requester_id) {
-      return NextResponse.json(
-        { error: 'channel_name and requester_id are required' },
-        { status: 400 },
-      );
-    }
+    // ----------------------------------------------------------
+    // 5. Create interview session
+    // ----------------------------------------------------------
 
-    // --- Interview session bootstrap ---
     const sessionId = randomUUID();
+
     const firstQuestion = `Hi ${userName}, thanks for joining. To start, can you walk me through your background as it relates to the ${role} role?`;
 
-    // user.id is the stable Supabase identity used for interview history.
-    // requester_id remains the temporary Agora RTC UID for this call.
     createSession(sessionId, {
       userId: user.id,
       userName,
@@ -112,22 +139,36 @@ export async function POST(request: NextRequest) {
       firstQuestion,
     });
 
-    // --- 2. Build and start the agent ---
+    // ----------------------------------------------------------
+    // 6. Create Agora client
+    // ----------------------------------------------------------
 
-    // AgoraClient authenticates API calls to the Agora Conversational AI service.
-    // area: change to Area.EU or Area.AP for European or Asia-Pacific deployments.
     const client = new AgoraClient({
       area: Area.US,
       appId,
       appCertificate,
     });
 
-    // Pipeline: Deepgram (reseller) STT → OpenAI (reseller) LLM → MiniMax (reseller) TTS.
-    // Omit vendor API keys for supported models — AgentKit infers reseller presets on start (see Agora Console / billing).
-    // SESSION_ID line is parsed back out by app/api/chat/completions/route.ts
-    // to correlate this call with the right interview session.
+    // ----------------------------------------------------------
+    // 7. Interview instructions
+    // ----------------------------------------------------------
 
-    const interviewInstructions = `SESSION_ID:${sessionId}\nUSER_ID:${user.id}\nUSER_NAME:${userName}\nROLE:${role}\nYou are conducting a live spoken job interview. When you receive a prompt from the system, respond with EXACTLY the question text you are given — do not add extra commentary, do not rephrase it. Speak naturally as if you are the interviewer.`;
+    const interviewInstructions = `SESSION_ID:${sessionId}
+USER_ID:${user.id}
+USER_NAME:${userName}
+ROLE:${role}
+
+You are conducting a live spoken job interview.
+
+When you receive a prompt from the system, respond with EXACTLY the question text you are given.
+
+Do not add extra commentary.
+Do not rephrase the question.
+Speak naturally as if you are the interviewer.`;
+
+    // ----------------------------------------------------------
+    // 8. Create AI agent
+    // ----------------------------------------------------------
 
     const agent = new Agent({
       client,
@@ -135,34 +176,34 @@ export async function POST(request: NextRequest) {
       greeting: firstQuestion,
       failureMessage: 'Please wait a moment.',
       maxHistory: 50,
-      // VAD controls how the agent detects the start and end of a user's turn.
+
       turnDetection: {
         config: {
           speech_threshold: 0.5,
+
           start_of_speech: {
             mode: 'vad',
             vad_config: {
-              interrupt_duration_ms: 160, // ms of speech before interruption triggers
-              prefix_padding_ms: 300, // audio captured before speech is detected
+              interrupt_duration_ms: 160,
+              prefix_padding_ms: 300,
             },
           },
+
           end_of_speech: {
             mode: 'vad',
             vad_config: {
-              silence_duration_ms: 480, // ms of silence before turn ends
+              silence_duration_ms: 480,
             },
           },
         },
       },
-      // RTM is required for transcript events in the browser client.
-      // enable_tools is required for MCP tool invocation.
-      advancedFeatures: { enable_rtm: true, enable_tools: true },
-      // Required for browser RTM events:
-      // - data_channel: 'rtm' enables RTM delivery path for state/metrics/errors
-      // - enable_error_message emits AGENT_ERROR payloads
-      // - enable_metrics emits AGENT_METRICS latency payloads
+
+      advancedFeatures: {
+        enable_rtm: true,
+        enable_tools: true,
+      },
+
       parameters: {
-        // web client → ultra-low-latency chorus profile
         audio_scenario: 'chorus',
         data_channel: 'rtm',
         enable_error_message: true,
@@ -174,14 +215,7 @@ export async function POST(request: NextRequest) {
           model: 'nova-3',
           language: 'en',
         }),
-        // BYOK: uncomment the following block and set NEXT_DEEPGRAM_API_KEY
-        // new DeepgramSTT({
-        //   apiKey: requireEnv('NEXT_DEEPGRAM_API_KEY'),
-        //   model: 'nova-3',
-        //   language: 'en',
-        // }),
       )
-
       .withLlm(
         new OpenAI({
           apiKey: requireEnv('NEXT_LLM_API_KEY'),
@@ -195,45 +229,35 @@ export async function POST(request: NextRequest) {
           topP: 0.95,
         }),
       )
-
-      // BYOK: uncomment the following block and set NEXT_LLM_API_KEY and NEXT_LLM_URL
-      // new OpenAI({
-      //   apiKey: requireEnv('NEXT_LLM_API_KEY'),
-      //   url: requireEnv('NEXT_LLM_URL'),
-      //   model: 'gpt-4o-mini',
-      //   greetingMessage: GREETING,
-      //   failureMessage: 'Please wait a moment.',
-      //   maxHistory: 15,
-      //   maxTokens: 1024,
-      //   temperature: 0.7,
-      //   topP: 0.95,
-      // }),
-      // )
       .withTts(
         new MiniMaxTTS({
           model: 'speech_2_6_turbo',
           voiceId: 'English_captivating_female1',
         }),
-        // BYOK — ElevenLabs (set NEXT_ELEVENLABS_API_KEY; optional NEXT_ELEVENLABS_VOICE_ID)
-        // new (await import('agora-agents')).ElevenLabsTTS({
-        //   key: requireEnv('NEXT_ELEVENLABS_API_KEY'),
-        //   modelId: 'eleven_flash_v2_5',
-        //   voiceId: process.env.NEXT_ELEVENLABS_VOICE_ID ?? 'pNInz6obpgDQGcFmaJgB',
-        //   sampleRate: 24000,
-        // }),
       );
 
-    // remoteUids restricts the agent to only process audio from this user
+    // ----------------------------------------------------------
+    // 9. Create Agora agent session
+    // ----------------------------------------------------------
+
     const session = agent.createSession({
       channel: channel_name,
       agentUid,
       remoteUids: [requester_id],
       idleTimeout: 30,
       expiresIn: ExpiresIn.hours(1),
-      debug: false, // enable debug to show restful API calls in the console
+      debug: false,
     });
 
+    // ----------------------------------------------------------
+    // 10. Start agent
+    // ----------------------------------------------------------
+
     const agentId = await session.start();
+
+    // ----------------------------------------------------------
+    // 11. Return response
+    // ----------------------------------------------------------
 
     return NextResponse.json({
       agent_id: agentId,
@@ -243,6 +267,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error starting conversation:', error);
+
     return NextResponse.json(
       {
         error:
